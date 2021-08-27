@@ -36,6 +36,13 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
+    if (-1 == remove(MY_SOCK_PATH) && ENOENT != errno)
+    {
+        fprintf(stderr, "Error in remove (%s)\n", MY_SOCK_PATH);
+        exit(EXIT_FAILURE);
+    }
+
+
     memset(&server, 0, sizeof(struct sockaddr_un));
 
     server.sun_family = AF_LOCAL;
@@ -53,7 +60,9 @@ int main(int argc, char *argv[])
         perror("Error in listen(...)");
         exit(EXIT_FAILURE);
     }
-    
+
+    printf("Server listen: %s\n", MY_SOCK_PATH);
+
     client_addr_size = sizeof(struct sockaddr_un);
     
     fd_new_soc = accept(fd_soc, (struct sockaddr *) &client, &client_addr_size);
