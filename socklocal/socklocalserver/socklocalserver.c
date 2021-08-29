@@ -12,36 +12,37 @@
 
 #define BUF_SIZE 100
 
+int print_sockaddr_un(int const sockfd);
 
 int main(int argc, char *argv[])
 {
-    int fd_soc = 0;
+    int ret = 0;
 
-    int fd_new_soc = 0;
+    int fd_soc = -1;
+    int fd_new_soc = -1;
 
     struct sockaddr_un server;
     struct sockaddr_un client;
-    socklen_t client_addr_size;
+    socklen_t client_addr_size = 0;
 
-    char send_buf[BUF_SIZE];
-    char rec_buf[BUF_SIZE];
-    ssize_t size_send_data = 0;
+    char buf[BUF_SIZE];
+    ssize_t size_buf_data = 0;
     ssize_t num_send_data = 0;
-    ssize_t num_read_data = 0;
 
     fd_soc = socket(AF_LOCAL, SOCK_STREAM, 0);
     if (-1 == fd_soc)
     {
         perror("Error in socket(...)");
-        exit(EXIT_FAILURE);
+        ret = EXIT_FAILURE;
+        goto finally;
     }
 
     if (-1 == remove(MY_SOCK_PATH) && ENOENT != errno)
     {
         fprintf(stderr, "Error in remove (%s)\n", MY_SOCK_PATH);
-        exit(EXIT_FAILURE);
+        ret = EXIT_FAILURE;
+        goto finally;
     }
-
 
     memset(&server, 0, sizeof(struct sockaddr_un));
 
@@ -49,73 +50,150 @@ int main(int argc, char *argv[])
     
     strncpy(server.sun_path, MY_SOCK_PATH, sizeof(server.sun_path) - 1);
 
-    if (-1 == bind(fd_soc, (struct sockaddr *) &server, sizeof(struct sockaddr_un)))
+    if (-1 == bind(fd_soc, (struct sockaddr *)&server, sizeof(struct sockaddr_un)))
     {
         perror("Error in bind(...)");
-        exit(EXIT_FAILURE);
+        ret = EXIT_FAILURE;
+        goto finally;
     }
-
+    
     if (-1 == listen(fd_soc, LISTEN_QUEUE_LEN))
     {
         perror("Error in listen(...)");
-        exit(EXIT_FAILURE);
+        ret = EXIT_FAILURE;
+        goto finally;
     }
 
     printf("Server listen: %s\n", MY_SOCK_PATH);
-
-    client_addr_size = sizeof(struct sockaddr_un);
     
-    fd_new_soc = accept(fd_soc, (struct sockaddr *) &client, &client_addr_size);
+    client_addr_size = sizeof(struct sockaddr_un);
+    memset(&client, 0, client_addr_size);
+    printf("Before accept(...) client_addr_size = %d\n", client_addr_size);
+
+    fd_new_soc = accept(fd_soc, (struct sockaddr *)&client, &client_addr_size);
     if (-1 == fd_new_soc)
     {
         perror("Error in accept(...)");
-        exit(EXIT_FAILURE);
+        ret = EXIT_FAILURE;
+        goto finally;
     }
 
-    num_read_data = recv(fd_new_soc, rec_buf, sizeof(rec_buf) - 1, 0);
-    if (-1 == num_read_data)
+    printf("After accept(...) client_addr_size = %d\n", client_addr_size);
+
+    if (-1 == print_sockaddr_un(fd_new_soc))
+    {
+        puts("Error in print_sockaddr_un(...)");
+        ret = EXIT_FAILURE;
+        goto finally;
+    }
+
+    size_buf_data = recv(fd_new_soc, buf, sizeof(buf) - 1, 0);
+    if (-1 == size_buf_data)
     {
         perror("Error in recv(...)");
-        exit(EXIT_FAILURE);
+        ret = EXIT_FAILURE;
+        goto finally;
     }
-    else if(0 == num_read_data)
+    else if(0 == size_buf_data)
     {
         printf("The client closed connection\n");
-        exit(EXIT_FAILURE);
+        ret = EXIT_FAILURE;
+        goto finally;
     }
 
-    rec_buf[num_read_data]='\0';
+    buf[size_buf_data]='\0';
         
-    printf("From client receive %ld bytes: %s\n\n", num_read_data, rec_buf);
+    printf("\nFrom client receive %ld bytes: %s\n", size_buf_data, buf);
 
-    snprintf(send_buf, sizeof(send_buf) - 1, "This server! Server PID = %d",
+    snprintf(buf, sizeof(buf) - 1, "This server! Server PID = %d",
             getpid());
         
-    size_send_data = strlen(send_buf) + 1;
+    size_buf_data = strlen(buf) + 1;
 
-    printf("Send data string (size = %ld, len = %ld): %s\n",
-            size_send_data,
-            strlen(send_buf),
-            send_buf);
+    printf("\nSend data string (size = %ld, len = %ld): %s\n",
+            size_buf_data,
+            strlen(buf),
+            buf);
 
-    num_send_data = send(fd_new_soc, send_buf, size_send_data, 0);
-    if (0 != errno || num_send_data != size_send_data)
+    errno = 0;
+    num_send_data = send(fd_new_soc, buf, size_buf_data, 0);
+    if (0 != errno || num_send_data != size_buf_data)
     {
         perror("Error in send(...)");
         fprintf(stderr, "Partial send?\n");
-        exit(EXIT_FAILURE);
+        ret = EXIT_FAILURE;
+        goto finally;
     }
 
     printf("This server send %ld bytes\n", num_send_data);
+
+ finally:
     
-    close(fd_new_soc);
-
-    close(fd_soc);
-
-    if (0 != unlink(MY_SOCK_PATH))
+    if (-1 != fd_new_soc)
     {
-        perror("Error in unlink()");
-        exit(EXIT_FAILURE);
+        puts("close(fd_new_soc)");
+        if (-1 == close(fd_new_soc))
+        {
+            perror("Error in close(fd_new_soc)");
+            ret = EXIT_FAILURE;
+        }
     }
-    return 0;
+
+    if (-1 != fd_soc)
+    {
+        puts("close(fd_soc)");
+        if (-1 == close(fd_soc))
+        {
+            perror("Error in close(fd_soc)");
+            ret = EXIT_FAILURE;
+        }
+    }
+
+    if (-1 == remove(MY_SOCK_PATH) && ENOENT != errno)
+    {
+        fprintf(stderr, "Error in remove (%s)\n", MY_SOCK_PATH);
+        ret = EXIT_FAILURE;
+    }
+
+    return ret;
+}
+
+int print_sockaddr_un(int const sockfd)
+{
+    int ret = 0;
+
+    void *paddr = NULL;
+    socklen_t addrsize = sizeof(struct sockaddr_un);
+
+    paddr = malloc(addrsize + 1);
+    if (NULL == paddr)
+    {
+        perror("Error in malloc(...), function print_sockaddr_un(...)");
+        ret = -1;
+        goto finally;
+    }
+    memset(paddr, 0, addrsize + 1);
+
+    printf("Before getsockname(...) addrsize = %d\n", addrsize);
+
+    if (-1 == getsockname(sockfd, (struct sockaddr *)paddr, &addrsize))
+    {
+        perror("Error in getsockname(...)");
+        ret = -1;
+        goto finally;
+    }
+
+    printf("After getsockname(...) addrsize = %d\n", addrsize);
+    printf("In struct sockaddr_un sun_family = %d, sun_path = %s\n",
+            ((struct sockaddr_un *)paddr)->sun_family, 
+            ((struct sockaddr_un *)paddr)->sun_path);
+
+ finally:
+
+    if (NULL != paddr)
+    {
+        free(paddr);
+    }
+
+    return ret;
 }
